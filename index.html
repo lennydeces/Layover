@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>US Map with Favorite Airports and Amtrak Stations</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        #map { height: 600px; width: 100%; }
+        .leaflet-popup-content { font-family: 'Georgia', serif; font-size: 14px; }
+        .leaflet-control-reset-zoom button { 
+            background: none; 
+            border: none; 
+            color: #708090; 
+            cursor: pointer; 
+            font-size: 20px; 
+            width: 30px; 
+            height: 30px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            transition: color 0.2s; 
+        }
+        .leaflet-control-reset-zoom button:hover { 
+            color: #2F4F4F; 
+        }
+        .airport-icon { 
+            font-size: 32px; 
+            color: #1E88E5; /* Blue for airports */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .train-icon { 
+            font-size: 32px; 
+            color: #D81B60; /* Pink for trains */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto p-4">
+        <h1 class="text-2xl font-bold mb-4 text-center font-serif">US Map with Favorite Airports and Amtrak Stations</h1>
+        <div id="map"></div>
+    </div>
+
+    <script>
+        // Initialize the map
+        const map = L.map('map').setView([37.8, -96], 4);
+
+        // Add a base tile layer
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        // Style function for states (no fill)
+        function style(feature) {
+            return {
+                fillColor: 'transparent',
+                weight: 2,
+                opacity: 1,
+                color: '#000000',
+                fillOpacity: 0
+            };
+        }
+
+        // Load external GeoJSON and add to map (no popups for states)
+        let geojson;
+        d3.json('https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json').then(function(data) {
+            geojson = L.geoJson(data, {
+                style: style
+            }).addTo(map);
+        });
+
+        // Reset zoom control with modern home icon
+        const resetZoomControl = L.control({ position: 'bottomleft' });
+        resetZoomControl.onAdd = function (map) {
+            const div = L.DomUtil.create('div', 'leaflet-control-reset-zoom');
+            div.innerHTML = '<button title="Reset Zoom" onclick="map.setView([37.8, -96], 4)"><i class="fas fa-home"></i></button>';
+            return div;
+        };
+        resetZoomControl.addTo(map);
+
+        // Custom icons using Material Icons
+        const airportIcon = L.divIcon({
+            html: '<i class="material-icons airport-icon">local_airport</i>',
+            iconSize: [32, 32],
+            iconAnchor: [16, 32],
+            popupAnchor: [0, -32],
+            className: '' // Remove default Leaflet icon styling
+        });
+
+        const amtrakIcon = L.divIcon({
+            html: '<i class="material-icons train-icon">train</i>',
+            iconSize: [32, 32],
+            iconAnchor: [16, 32],
+            popupAnchor: [0, -32],
+            className: ''
+        });
+
+        // Favorite Airports layer with persistent toggle popups
+        const favoriteAirports = L.layerGroup();
+        const airportMarkers = [
+            { name: "ITH", coords: [42.4440, -76.5019], city: "Ithaca, NY" },
+            { name: "PIT", coords: [40.4387, -79.9972], city: "Pittsburgh, PA" },
+            { name: "RDU", coords: [35.7796, -78.6382], city: "Raleigh, NC" },
+            { name: "CHO", coords: [38.0302, -78.4769], city: "Charlottesville, VA" },
+            { name: "MCO", coords: [28.5384, -81.3789], city: "Orlando, FL" },
+            { name: "SAV", coords: [32.0809, -81.0912], city: "Savannah, GA" },
+            { name: "RAP", coords: [44.0805, -103.2310], city: "Rapid City, SD" },
+            { name: "OKC", coords: [35.4689, -97.5195], city: "Oklahoma City, OK" },
+            { name: "LAS", coords: [36.1716, -115.1391], city: "Las Vegas, NV" },
+            { name: "PHX", coords: [33.4482, -112.0777], city: "Phoenix, AZ" },
+            { name: "SLC", coords: [40.7606, -111.8881], city: "Salt Lake City, UT" },
+            { name: "PDX", coords: [45.5152, -122.6784], city: "Portland, OR" },
+        ];
+
+        airportMarkers.forEach(marker => {
+            const markerLayer = L.marker(marker.coords, { icon: airportIcon, autoClose: false })
+                .on('click', function() {
+                    if (this.getPopup() && this.getPopup().isOpen()) {
+                        this.closePopup();
+                    } else {
+                        this.bindPopup(`<b>${marker.name}</b><br>${marker.city}`, { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                    }
+                });
+            favoriteAirports.addLayer(markerLayer);
+        });
+
+        // Favorite Amtrak Stations layer with persistent toggle popups
+        const favoriteAmtrakStations = L.layerGroup([
+            L.marker([40.7128, -74.0060], { icon: amtrakIcon, autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Penn Station</b><br>New York, NY', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([38.9072, -77.0369], { icon: amtrakIcon, autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Washington Union Station</b><br>Washington, DC', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([42.3555, -71.0565], { icon: amtrakIcon, autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Penn Station</b><br>Boston, MA', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([39.9526, -75.1652], { icon: amtrakIcon, autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>30th Street Station</b><br>Philadelphia, PA', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([35.7796, -78.6382], { icon: amtrakIcon, autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Raleigh Union Station</b><br>Raleigh, NC', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([35.9557, -80.0053], { icon: amtrakIcon, autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>High Point Station</b><br>High Point, NC', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([25.7617, -80.1918], { icon: amtrakIcon, autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Brightline Miami Station</b><br>Miami, FL', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([26.1224, -80.1373], { icon: amtrakIcon, autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Brightline Fort Lauderdale Station</b><br>Fort Lauderdale, FL', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([28.5384, -81.3789], { icon: amtrakIcon, autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Brightline Orlando Station</b><br>Orlando, FL', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            // Add more Amtrak stations as needed
+        ]);
+
+        // Favorite Spots layer with persistent toggle popups (unchanged)
+        const favorite_spots = L.layerGroup([
+            L.marker([40.7128, -74.0060], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>New York, NY</b><br>Spiritual Home', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([40.9257, -73.1409], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Stony Brook, NY</b><br>Dream Starts', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([39.9526, -75.1652], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Philadelphia, PA</b><br>First Trip', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([38.9072, -77.0369], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Washington, DC</b><br>Preparation Base', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([34.0549, -118.2426], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Los Angeles, CA</b><br>Unfamiliar With', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([32.7157, -117.1611], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>San Diego, CA</b><br>California Favorite', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([34.4203, -119.6989], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Santa Barbara, CA</b><br>Campus Unseen', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([37.7749, -122.4194], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>San Francisco, CA</b><br>Slope Shock', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([47.6061, -122.3328], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Seattle, WA</b><br>Northwest Unlocked', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([33.7501, -84.3885], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Atlanta, GA</b><br>Southern Heat', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([35.5975, -82.5461], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Asheville, NC</b><br>Old Castle', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([35.0458, -85.3094], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Chattanooga, TN</b><br>Fantastic Transport', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([36.1627, -86.7816], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Nashville, TN</b><br>Music Collections', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([42.4440, -76.5019], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Ithaca, NY</b><br>Cornell University', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([43.0962, -79.0377], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Niagara Falls, NY</b><br>Hydroelectricity Border', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([42.3555, -71.0565], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Boston, MA</b><br>Friend Gathering', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([41.8246, -71.4142], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Providence, RI</b><br>Forgotten Corner', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([28.5384, -81.3789], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Orlando, FL</b><br>Brightline Finished', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([25.7617, -80.1918], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Miami, FL</b><br>First Solo', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([24.5551, -81.7800], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Key West, FL</b><br>Southernmost Point', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([39.2905, -76.6104], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Baltimore, MD</b><br>Crime Hotbed', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([43.0495, -76.1474], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Syracuse, NY</b><br>Snowy Town', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([40.4387, -79.9972], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Pittsburgh, PA</b><br>Steel Honeymoon', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([40.4387, -79.9972], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Cortland, NY</b><br>Work Accompanion', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([43.1566, -77.6088], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Rochester, NY</b><br>Three Friends', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([42.9106, -76.7966], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Seneca Falls, NY</b><br>Licence Cradle', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([35.7796, -78.6382], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Raleigh, NC</b><br>Southern Capital', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([35.9956, -78.9002], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Durham, NC</b><br>Emergent Biotechnology', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([35.9132, -79.0558], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Chapel Hill, NC</b><br>Basketball Jordan', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([38.0302, -78.4769], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Charlottesville, VA</b><br>Hertz Bitch', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([39.4143, -77.4105], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Frederick, MD</b><br>Near Fallingwater', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([39.9625, -83.0032], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Columbus, OH</b><br>Northern Capital', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([39.7691, -86.1580], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Indianapolis, IN</b><br>All Star', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([39.1031, -84.5120], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Cincinnati, OH</b><br>Union Terminal', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([39.0837, -84.5086], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Covington, KY</b><br>Cincinnati Cityview', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([41.4993, -81.6944], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Cleveland, OH</b><br>Superman Filmmaking', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([41.8832, -87.6324], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Chicago, IL</b><br>Outrageous Adventure', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([39.7392, -104.9903], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Denver, CO</b><br>Suitable Place', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([40.0190, -105.2747], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Boulder, CO</b><br>Geosciences Campus', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([38.8353, -104.8216], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Colorado Springs, CO</b><br>Olympic Training', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([35.2216, 80.8401], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Charlotte, NC</b><br>Sullenberger Aviation', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([35.9557, -80.0053], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>High Point, NC</b><br>Furniture Convention', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([35.7890, -78.7798], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Cary, NC</b><br>Downtown Park', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([35.7890, -78.7798], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Cary, NC</b><br>Downtown Park', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([32.0809, -81.0912], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Savannah, GA</b><br>Forrest Gump', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([32.7833, -79.9320], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Charleston, SC</b><br>Romance Riverview', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([29.9509, -90.0758], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>New Orleans, LA</b><br>Special Request', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([39.1155, -94.6268], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Kansas City, KS</b><br>Lewis Clark', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([39.0997, -94.5786], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Kansas City, MO</b><br>Union Station', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([44.8408, -93.2983], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Bloomington, MN</b><br>American Mall', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([44.9778, -93.2650], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Minneapolis, MN</b><br>Skyway Bridge', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([44.0805, -103.2310], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Rapid City, SD</b><br>President Statue', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([43.8547, -104.2049], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Newcastle, WY</b><br>Wyoming Gateway', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([43.8955, -103.4182], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Keystone, SD</b><br>Gold Rush', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([35.4689, -97.5195], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Oklahoma City, OK</b><br>Tribal Center', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([32.7555, -97.3308], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Fort Worth, TX</b><br>Cowboy Railroad', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([41.2619, -95.8608], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Council Bluffs, IA</b><br>Union Pacific', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([41.2565, -95.9345], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Omaha, NE</b><br>City Amenties', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([42.3297, -83.0425], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Detroit, MI</b><br>Renaissance Engine', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([42.3297, -83.0425], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>St. Louis</b><br>Arch Selfie', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([36.1716, -115.1391], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Las Vegas, NV</b><br>Strat Observatory', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([33.4482, -112.0777], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Phoenix, AZ</b><br>Hole Rock', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([33.4255, -111.9400], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Tempe, AZ</b><br>First Admission', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([40.7606, -111.8881], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Salt lake City, UT</b><br>Lucky Flight', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([41.2186, -111.9705], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Ogden, UT</b><br>Railroad Junction', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([40.2335, -111.6670], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Provo, UT</b><br>Religion University', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+            L.marker([45.5152, -122.6784], { autoClose: false }).on('click', function() {
+                if (this.getPopup() && this.getPopup().isOpen()) {
+                    this.closePopup();
+                } else {
+                    this.bindPopup('<b>Portland, OR</b><br>Last Solo', { maxWidth: 300, autoClose: false, closeOnClick: false }).openPopup();
+                }
+            }),
+        ]);
+
+        // Layer control
+        const overlayLayers = {
+            "Favorite Airports": favoriteAirports,
+            "Favorite Amtrak Stations": favoriteAmtrakStations,
+            "Favorite Spots": favorite_spots
+        };
+
+        L.control.layers(null, overlayLayers).addTo(map);
+
+        // Add layers to map by default
+        favoriteAirports.addTo(map);
+        favoriteAmtrakStations.addTo(map);
+        favorite_spots.addTo(map);
+    </script>
+</body>
+</html>
